@@ -1,0 +1,274 @@
+---
+title: "ESM 244 Lab 5 by Gabriel Ingman"
+author: "Gabe Ingman"
+date: "2/8/2024"
+format: 
+  html:
+    code-fold: show
+    embed-resources: true
+    toc: true
+execute:
+  message: false
+  warning: false
+---
+
+```{r setup}
+
+#install.packages('palmerpenguins')
+#install.packages('remotes')
+#install.packages('AICcmodavg')
+#install.packages('equatiomatic')
+
+#remotes::install_github("datalorax/equatiomatic")
+
+library(tidyverse)
+library(here)
+library(palmerpenguins)
+library(AICcmodavg)
+#library(equatiomatic)
+
+```
+
+```{r}
+
+penguins_clean <- penguins %>% 
+  drop_na() %>% 
+  rename(mass = body_mass_g,
+         bill_l = bill_length_mm,
+         bill_d = bill_depth_mm,
+         flip_l = flipper_length_mm,
+  )
+
+```
+
+## Linear Regression model
+
+```{r}
+
+mdl1 <- lm(formula = mass ~ bill_l + bill_d + flip_l + species + sex + island, 
+           data = penguins_clean)
+
+```
+
+```{r}
+
+f1 <- mass ~ bill_l + bill_d + flip_l + species + sex + island
+
+mdl1 <- lm(f1, data = penguins_clean)
+
+
+f2 <- mass ~ bill_l + bill_d + flip_l + species + sex
+mdl2 <- lm(f2, data = penguins_clean)
+
+
+f3 <- mass ~ bill_d + flip_l + species + sex
+mdl3 <- lm(f3, data = penguins_clean)
+```
+
+## Comparing Models
+
+```{r comparingdatamodels}
+
+#This is Akaike vs Bayesian Information Criterion. Compares models to one another based on a series of criteria. BIC is more strict. They provide information regarding whether the model is a good fit for the data or not.
+
+AIC(mdl1, mdl2, mdl3)
+
+BIC(mdl1, mdl2, mdl3)
+
+AICcmodavg::aictab(list(mdl1, mdl2, mdl3))
+bictab(list(mdl1, mdl2, mdl3))
+
+```
+
+## Pseudocode for Cross Validation
+
+Emphasize model 1
+
+Cross validation
+
+## Real Code for Cross Validation
+
+```{r}
+
+folds <- 10
+fold_vec <- rep(1:folds, length.out = nrow(penguins_clean))
+
+set.seed(42)
+
+penguins_fold <- penguins_clean %>% 
+  mutate(group = sample(fold_vec, n(), replace = FALSE))
+  table(penguins_fold$group)
+  
+test_df <- penguins_fold %>% 
+  filter(group == 1)
+
+train_df <- penguins_fold %>% 
+  filter(group != 1)
+
+
+```
+
+## RMSE Function
+
+Rmse means root mean square error
+
+```{r rmse}
+
+calc_rmse <- function(x,y) {
+  # x is a predicted function, y is observed
+  rmse <- (x-y)^2 %>% mean() %>% sqrt()
+  return(rmse)
+}
+
+```
+
+```{r}
+
+training_lm1 <- lm(f1, data = train_df)
+
+training_lm2 <- lm(f2, data = train_df)
+
+training_lm3 <- lm(f3, data = train_df)
+```
+
+## Compare models using RMSE based on first fold
+
+```{r}
+
+predict_test <- test_df %>%
+  mutate(model1 = predict(training_lm1, test_df),
+         model2 = predict(training_lm2, test_df),
+         model3 = predict(training_lm3, test_df)) 
+
+rmse_predict_test <- predict_test %>% 
+  summarize(rmse_mdl1 = calc_rmse(model1, mass),
+            rmse_mdl2 = calc_rmse(model2, mass),
+            rmse_mdl3 = calc_rmse(model3, mass))
+
+```
+
+## 10-fold Cross Validation using a 'For' Loop
+
+```{r sampleforloop}
+
+#month.name
+#for (m in month.name) {
+  #print(paste('Month: ', m))
+  
+#}
+  
+
+```
+
+```{r realforloop}
+
+i <- 1
+
+rmse_vec <- vector(length = folds)
+
+for (i in 1:folds) {
+  kfold_test_df <- penguins_fold %>% 
+    filter(group == i)
+  kfold_train_df <- penguins_fold %>% 
+    filter(group != i)
+  
+  kfold_lm1 <- lm(f1, data = kfold_train_df)
+  
+  kfold_pred_df <-kfold_test_df %>% 
+    mutate(mdl = predict(kfold_lm1, .))
+  kfold_rmse <- kfold_pred_df %>% 
+    summarize(rmse_mdl = calc_rmse(mdl, mass))
+  
+  rmse_vec[i] <- kfold_rmse$rmse_mdl
+}
+
+mean(rmse_vec)
+
+```
+
+```{r}
+
+#the same code chunk but with the function command and with more universal things
+
+kfold_cv <- function(i, df, formula) {
+  ### WAS: kfold_train_df <- penguins_fold %>%
+  ### WAS:   filter(group == i)
+  kfold_train_df <- df %>%
+    filter(group != i)
+  ### WAS: kfold_test_df <- penguins_fold %>%
+  ### WAS:   filter(group == i)
+  kfold_test_df <- df %>%
+    filter(group == i)
+  
+  ### WAS: kfold_lm1 <- lm(f1, data = kfold_train_df)
+  kfold_lm <- lm(formula, data = kfold_train_df)
+
+  ### Change XXX_lm1 to just XXX_lm in the following lines
+  kfold_pred_df <- kfold_test_df %>%
+    mutate(mdl = predict(kfold_lm, kfold_test_df))
+  kfold_rmse <- kfold_pred_df %>%
+    summarize(rmse_mdl = calc_rmse(mdl, mass))
+
+  ### WAS: rmse_vec[i] <- kfold_rmse$rmse_mdl
+  ### IS: return the value directly
+  return(kfold_rmse$rmse_mdl)
+}
+
+```
+
+```{r testingfunctions}
+
+### Test the function
+rmse_fold1 <- kfold_cv(i = 1, df = penguins_fold, formula = f1)
+
+### initialize a blank list
+rmse_loop_vec <- vector(length = folds)
+
+### loop over all folds, apply our function
+for(i in 1:folds) {
+  rmse_loop_vec[i] <- kfold_cv(i = i, df = penguins_fold, formula = f1)
+}
+
+mean(rmse_loop_vec)
+
+```
+
+## Cross Validation with Purrr Map
+
+```{r}
+### how many letters in each month name? map the sequence of month 
+### names to the nchar() function
+month.name
+map(month.name, nchar)
+map_int(month.name, nchar)
+```
+
+```{r purrrmap}
+
+rmse_map_list <- purrr::map(.x = 1:folds, 
+                            .f = kfold_cv, 
+                            ### our function needs two more arguments:
+                            df = penguins_fold, 
+                            formula = f1)
+rmse_map_vec <- unlist(rmse_map_list)
+mean(rmse_map_vec)
+```
+
+```{r}
+
+rmse_df <- data_frame(j = 1:folds) %>% 
+  mutate(rmse_mdl1 = map_dbl(.x = j, .f = kfold_cv, df = penguins_fold, formula = f1),
+         rmse_mdl2 = map_dbl(.x = j, .f = kfold_cv, df = penguins_fold, formula = f2),
+         rmse_mdl3 = map_dbl(.x = j, .f = kfold_cv, df = penguins_fold, formula = f3))
+
+rmse_means <- rmse_df %>%
+  summarize(across(starts_with('rmse'), mean))
+
+```
+
+```{r}
+
+final_mdl <- lm(f2, data = penguins_clean)
+summary(final_mdl)
+
+```
